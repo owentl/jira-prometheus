@@ -1,0 +1,17 @@
+{
+    "PROJ1": {
+        "sprintField": "customfield_10021",
+        "planningBoard": "Project1 board",
+        "storyPointsEstimate": "customfield_10016"
+    },
+    "PROJ2": {
+        "planningBoard": "PROJECT",
+        "sprintField": "customfield_10021",
+        "storyPointsEstimate": "customfield_10016"
+    },
+    "UI": {
+        "planningBoard": "UI Development",
+        "sprintField": "customfield_10021",
+        "storyPointsEstimate": "customfield_10016"
+    }
+}
