@@ -1,0 +1,29 @@
+version: '2.2'
+
+networks:
+  jira:
+    driver: bridge
+services:
+  jira:
+    image: jirakpis-0.1
+    command: /start-reload.sh
+    ports:
+      - 8080:80
+    volumes:
+      - ./app:/app/
+    environment:
+      # OTEL_RESOURCE_ATTRIBUTES: $OTEL_RESOURCE_ATTRIBUTES
+      # OTEL_EXPORTER_OTLP_ENDPOINT: $OTEL_EXPORTER_OTLP_ENDPOINT
+      # OTEL_METRICS_EXPORTER: 'none'
+      # OTEL_PYTHON_LOG_CORRELATION: $OTEL_PYTHON_LOG_CORRELATION
+      # OTEL_SERVICE_NAME: "jiraKPI"
+      # OTEL_TRACES_EXPORTER: "otlp"
+      # OTEL_TRACES_ENABCLED: "true"
+      LOG_LEVEL: "debug"
+      OTEL_PYTHON_LOG_CORRELATION: "true"
+    networks:
+      - jira
+
+volumes:
+  jira:
+    driver: local
