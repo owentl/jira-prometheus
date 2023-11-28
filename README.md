@@ -17,5 +17,6 @@ In addition to the config.json you will need to set 3 ENV variables.  You will n
 * JIRA_HOST - Typically https://[org].atlassian.net/
 * JIRA_USER - The user for the API Key
 * JIRA_API_KEY - Your JIRA API key for the JIRA_USER user
+* TEMPO_SERVER - IP of the Tempo Server
 
 This project was based off the Gitlab version I did called gitlab-prometheus.
