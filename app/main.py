@@ -9,20 +9,34 @@ from prometheus_client import Gauge, Info
 from jira import JIRA
 from icecream import ic
 from collections import Counter
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.logging import LoggingInstrumentor
 
-
-logFormatter = '%(asctime)s - %(levelname)s - %(message)s'
-logging.basicConfig(format=logFormatter, level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-app = FastAPI()
-app.add_middleware(PrometheusMiddleware)
 JIRA_API_KEY = os.environ.get("JIRA_API_KEY")
 JIRA_USER = os.environ.get("JIRA_USER")
 JIRA_HOST = os.environ.get("JIRA_HOST")
-jira = JIRA(server=JIRA_HOST, basic_auth=(JIRA_USER,JIRA_API_KEY))
+TEMPO_SERVER = os.environ.get("TEMPO_SERVER")
 
-projects = jira.projects()
+#jira = JIRA(server=JIRA_HOST, basic_auth=(JIRA_USER,JIRA_API_KEY))
+
+app = FastAPI(title="JiraKPIs")
+
+resource = Resource(attributes={"service.name": "jiraKPIs"})
+tracer = TracerProvider(resource=resource)
+trace.set_tracer_provider(tracer)
+tracer.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=f"http://{TEMPO_SERVER}:4317")))
+
+# tracer = trace.get_tracer("JiraKPIs")
+LoggingInstrumentor().instrument()
+FastAPIInstrumentor.instrument_app(app, tracer_provider=tracer)
+app.add_middleware(PrometheusMiddleware)
+
+tracer = trace.get_tracer(__name__)
 
 with open('config.json','r') as f:
     CONFIG_MAP = json.load(f)
@@ -44,18 +58,17 @@ SPRINT_COUNT_PRIORITY = Gauge("jirakpis_summary_count_priority","Ticket Count by
 SPRINT_EPIC_COUNT = Gauge("jirakpis_summary_count_epic","Ticket Count by Epic",["group","sprint","epic"])
 TEAMS_INFO = Gauge("jirakpis_teams_info","List of projects",["team"])
 
-async def get_projects(CONFIG_MAP):
+async def get_projects(CONFIG_MAP,jira):
     selectedProjects = []
     projects = jira.projects()
     for proj in projects:
-        # if proj.key in CONFIG_MAP['projects']:
         if proj.key in CONFIG_MAP.keys():
             TEAMS_INFO.labels(proj).set(1)
             selectedProjects.append(proj)
     
     return selectedProjects
 
-async def get_team_issues(activeSprints,futureSprints):
+async def get_team_issues(activeSprints,futureSprints,jira):
     issues = {}
     for team in activeSprints:
         #let's get current sprint info
@@ -70,7 +83,7 @@ async def get_team_issues(activeSprints,futureSprints):
             issues[team]['future'][sprint.name] = jira.search_issues(jql_str=sprintJql,maxResults=False)
     return issues
 
-async def get_team_boards(projects):
+async def get_team_boards(projects,jira):
     activeSprints = {}
     futureSprints = {}
 
@@ -148,7 +161,7 @@ async def team_metrics(issues):
                     
                     SPRINT_WEIGHT.labels(team,future_sprint).set(futureWeight)
 
-async def epic_metrics(projects):
+async def epic_metrics(projects,jira):
     for team in projects:
         epics_status = Counter()
         teamJql = f"project = {team} and type = epic"
@@ -175,14 +188,25 @@ async def build_metrics(request):
     BACKLOG_ISSUE_COUNT.clear()
 
     status = Counter()
-    projects = await get_projects(CONFIG_MAP)
- 
-    activeSprints,futureSprints = await get_team_boards(projects)
-    issues = await get_team_issues(activeSprints,futureSprints)
-    await team_metrics(issues)
-    await epic_metrics(projects)
+    jira = JIRA(server=JIRA_HOST, basic_auth=(JIRA_USER,JIRA_API_KEY))
+    
+    with tracer.start_as_current_span("get_projects"):
+        logging.info("Getting projects")
+        projects = await get_projects(CONFIG_MAP,jira)
+    with tracer.start_as_current_span("get_team_boards"):
+        logging.info("Getting Team Boards")
+        activeSprints,futureSprints = await get_team_boards(projects,jira)
+    with tracer.start_as_current_span("get_team_issues"):
+        logging.info("Getting Team Issues")
+        issues = await get_team_issues(activeSprints,futureSprints,jira)
+    with tracer.start_as_current_span("team_metrics"):
+        logging.info("Getting Team Metrics")
+        await team_metrics(issues)
+    with tracer.start_as_current_span("epic_metrics"):
+        logging.info("Getting Epic Metrics")
+        await epic_metrics(projects,jira)
 
-    logger.info("Finished Metrics")
+    logging.info("Finished Metrics")
     return handle_metrics(request)
 
 
